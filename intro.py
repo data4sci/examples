@@ -6,7 +6,7 @@ import tensorflow as tf
 from timeit import default_timer as timer
 import random
 
-print('ok')
+print('imports ok')
 
 #%%
 
@@ -15,7 +15,7 @@ def time_decorator(func):
         start = timer()
         func(*args, **kwargs)
         dev = kwargs['dev'] if 'dev' in kwargs else None
-        print(f"{func.__name__} (dev={dev}): Duration = {timer()-start:.2f}")
+        print(f"{func.__name__} (dev={dev}): Duration = {timer()-start:.2f}\n")
     return wrapper
 
 @time_decorator
