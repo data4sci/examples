@@ -233,6 +233,6 @@ iters = 5000
 
 numpy_learn(N, D_in, H, D_out, iters, learning_rate)
 torch_learn(N, D_in, H, D_out, iters, learning_rate, dev="cpu")
-#torch_learn(N, D_in, H, D_out, iters, learning_rate, dev="cuda:0")
+torch_learn(N, D_in, H, D_out, iters, learning_rate, dev="cuda:0")
 torch_autograd_learn(N, D_in, H, D_out, iters, learning_rate, dev="cpu")
 torch_relu_learn(N, D_in, H, D_out, iters, learning_rate, dev="cpu")

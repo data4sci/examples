@@ -5,7 +5,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 from torchvision import datasets, transforms
-
+from timeit import default_timer as timer
 
 class Net(nn.Module):
     def __init__(self):
@@ -113,4 +113,6 @@ def main():
         torch.save(model.state_dict(),"mnist_cnn.pt")
         
 if __name__ == '__main__':
+    start=timer()
     main()
+    print(f"{timer()-start}")
