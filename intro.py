@@ -229,35 +229,37 @@ def torch_relu_learn(N, D_in, H, D_out, iters, threshold, learning_rate, dev="cp
 
 
 @time_decorator
-def tf_learn(N, D_in, H, D_out, iters, threshold, learning_rate, dev="cpu"):
-    # First we set up the computational graph:
-    # Create placeholders for the input and target data; these will be filled
-    # with real data when we execute the graph.
-    x = tf.placeholder(tf.float32, shape=(None, D_in))
-    y = tf.placeholder(tf.float32, shape=(None, D_out))
-    # Create Variables for the weights and initialize them with random data.
-    # A TensorFlow Variable persists its value across executions of the graph.
-    w1 = tf.Variable(tf.random_normal((D_in, H)))
-    w2 = tf.Variable(tf.random_normal((H, D_out)))
-    # Forward pass: Compute the predicted y using operations on TensorFlow Tensors.
-    # Note that this code does not actually perform any numeric operations; it
-    # merely sets up the computational graph that we will later execute.
-    h = tf.matmul(x, w1)
-    h_relu = tf.maximum(h, tf.zeros(1))
-    y_pred = tf.matmul(h_relu, w2)
-    # Compute loss using operations on TensorFlow Tensors
-    loss = tf.reduce_sum((y - y_pred) ** 2.0)
-    # Compute gradient of the loss with respect to w1 and w2.
-    grad_w1, grad_w2 = tf.gradients(loss, [w1, w2])
-    # Update the weights using gradient descent. To actually update the weights
-    # we need to evaluate new_w1 and new_w2 when executing the graph. Note that
-    # in TensorFlow the the act of updating the value of the weights is part of
-    # the computational graph; in PyTorch this happens outside the computational
-    # graph.
-    new_w1 = w1.assign(w1 - learning_rate * grad_w1)
-    new_w2 = w2.assign(w2 - learning_rate * grad_w2)
+def tf_learn(N, D_in, H, D_out, iters, threshold, learning_rate, dev='/cpu:0'):
+    with tf.device(dev):
+        # First we set up the computational graph:
+        # Create placeholders for the input and target data; these will be filled
+        # with real data when we execute the graph.
+        x = tf.placeholder(tf.float32, shape=(None, D_in))
+        y = tf.placeholder(tf.float32, shape=(None, D_out))
+        # Create Variables for the weights and initialize them with random data.
+        # A TensorFlow Variable persists its value across executions of the graph.
+        w1 = tf.Variable(tf.random_normal((D_in, H)))
+        w2 = tf.Variable(tf.random_normal((H, D_out)))
+        # Forward pass: Compute the predicted y using operations on TensorFlow Tensors.
+        # Note that this code does not actually perform any numeric operations; it
+        # merely sets up the computational graph that we will later execute.
+        h = tf.matmul(x, w1)
+        h_relu = tf.maximum(h, tf.zeros(1))
+        y_pred = tf.matmul(h_relu, w2)
+        # Compute loss using operations on TensorFlow Tensors
+        loss = tf.reduce_sum((y - y_pred) ** 2.0)
+        # Compute gradient of the loss with respect to w1 and w2.
+        grad_w1, grad_w2 = tf.gradients(loss, [w1, w2])
+        # Update the weights using gradient descent. To actually update the weights
+        # we need to evaluate new_w1 and new_w2 when executing the graph. Note that
+        # in TensorFlow the the act of updating the value of the weights is part of
+        # the computational graph; in PyTorch this happens outside the computational
+        # graph.
+        new_w1 = w1.assign(w1 - learning_rate * grad_w1)
+        new_w2 = w2.assign(w2 - learning_rate * grad_w2)
     # Now we have built our computational graph, so we enter a TensorFlow session to
     # actually execute the graph.
+#    with tf.Session(config=tf.ConfigProto(log_device_placement=True)) as sess:
     with tf.Session() as sess:
         # Run the graph once to initialize the Variables w1 and w2.
         sess.run(tf.global_variables_initializer())
@@ -280,6 +282,118 @@ def tf_learn(N, D_in, H, D_out, iters, threshold, learning_rate, dev="cpu"):
                         break
         #        print(loss_value)
     print(f"loss {startingloss:.1f} -> {loss_value:.3g}; ratio={100*loss_value/startingloss:.2g}%; iters={t}")
+
+
+
+
+@time_decorator
+def torch_nn_learn(N, D_in, H, D_out, iters, threshold, learning_rate, dev="cpu"):
+
+    x = torch.randn(N, D_in)
+    y = torch.randn(N, D_out)
+    # Use the nn package to define our model as a sequence of layers. nn.Sequential
+    # is a Module which contains other Modules, and applies them in sequence to
+    # produce its output. Each Linear Module computes output from input using a
+    # linear function, and holds internal Tensors for its weight and bias.
+    model = torch.nn.Sequential(
+        torch.nn.Linear(D_in, H),
+        torch.nn.ReLU(),
+        torch.nn.Linear(H, D_out),
+    )
+
+    # The nn package also contains definitions of popular loss functions; in this
+    # case we will use Mean Squared Error (MSE) as our loss function.
+    loss_fn = torch.nn.MSELoss(reduction='sum')
+
+    startingloss = None
+    for t in range(iters):
+        # Forward pass: compute predicted y by passing x to the model. Module objects
+        # override the __call__ operator so you can call them like functions. When
+        # doing so you pass a Tensor of input data to the Module and it produces
+        # a Tensor of output data.
+        y_pred = model(x)
+
+        # Compute and print loss. We pass Tensors containing the predicted and true
+        # values of y, and the loss function returns a Tensor containing the
+        # loss.
+        loss = loss_fn(y_pred, y)
+#        print(t, loss.item())
+        if not startingloss:
+                startingloss = loss
+        if loss/startingloss < threshold:
+                break
+
+        # Zero the gradients before running the backward pass.
+        model.zero_grad()
+
+        # Backward pass: compute gradient of the loss with respect to all the learnable
+        # parameters of the model. Internally, the parameters of each Module are stored
+        # in Tensors with requires_grad=True, so this call will compute gradients for
+        # all learnable parameters in the model.
+        loss.backward()
+
+        # Update the weights using gradient descent. Each parameter is a Tensor, so
+        # we can access its gradients like we did before.
+        with torch.no_grad():
+            for param in model.parameters():
+                param -= learning_rate * param.grad
+    print(f"loss {startingloss:.1f} -> {loss:.3g}; ratio={100*loss/startingloss:.2g}%; iters={t}")
+
+
+
+
+
+
+@time_decorator
+def torch_optim_learn(N, D_in, H, D_out, iters, threshold, learning_rate, optimizerfn=torch.optim.Adam, dev="cpu"):
+
+    x = torch.randn(N, D_in)
+    y = torch.randn(N, D_out)
+
+    # Use the nn package to define our model and loss function.
+    model = torch.nn.Sequential(
+        torch.nn.Linear(D_in, H),
+        torch.nn.ReLU(),
+        torch.nn.Linear(H, D_out),
+    )
+    loss_fn = torch.nn.MSELoss(reduction='sum')
+
+    # Use the optim package to define an Optimizer that will update the weights of
+    # the model for us. Here we will use Adam; the optim package contains many other
+    # optimization algoriths. The first argument to the Adam constructor tells the
+    # optimizer which Tensors it should update.
+    optimizer = optimizerfn(model.parameters(), lr=learning_rate)
+    startingloss = None
+    for t in range(iters):
+        # Forward pass: compute predicted y by passing x to the model.
+        y_pred = model(x)
+
+        # Compute and print loss.
+        loss = loss_fn(y_pred, y)
+#        print(t, loss.item())
+        if not startingloss:
+            startingloss = loss
+        if loss/startingloss < threshold:
+                break
+
+        # Before the backward pass, use the optimizer object to zero all of the
+        # gradients for the variables it will update (which are the learnable
+        # weights of the model). This is because by default, gradients are
+        # accumulated in buffers( i.e, not overwritten) whenever .backward()
+        # is called. Checkout docs of torch.autograd.backward for more details.
+        optimizer.zero_grad()
+
+        # Backward pass: compute gradient of the loss with respect to model
+        # parameters
+        loss.backward()
+
+        # Calling the step function on an Optimizer makes an update to its
+        # parameters
+        optimizer.step()
+
+    print(f"loss {startingloss:.1f} -> {loss:.3g}; ratio={100*loss/startingloss:.2g}%; iters={t}")
+
+
 
 
 
@@ -321,7 +435,7 @@ class DynamicNet(torch.nn.Module):
         return y_pred
 
 @time_decorator
-def torch_final_learn(N, D_in, H, D_out, iters, threshold, learning_rate, dev="cpu"):
+def torch_dynamic_learn(N, D_in, H, D_out, iters, threshold, learning_rate, dev="cpu"):
 
     # Create random Tensors to hold inputs and outputs
     x = torch.randn(N, D_in)
@@ -331,7 +445,7 @@ def torch_final_learn(N, D_in, H, D_out, iters, threshold, learning_rate, dev="c
     # Construct our loss function and an Optimizer. Training this strange model with
     # vanilla stochastic gradient descent is tough, so we use momentum
     criterion = torch.nn.MSELoss(reduction='sum')
-    optimizer = torch.optim.SGD(model.parameters(), lr=1e-4, momentum=0.9)
+    optimizer = torch.optim.SGD(model.parameters(), lr=learning_rate, momentum=0.9)
     startingloss = None
     for t in range(iters):
         # Forward pass: Compute predicted y by passing x to the model
@@ -367,8 +481,22 @@ threshold = 0.00001
 
 numpy_learn(N, D_in, H, D_out, iters, threshold, learning_rate)
 torch_learn(N, D_in, H, D_out, iters, threshold, learning_rate, dev="cpu")
-#torch_learn(N, D_in, H, D_out, iters, threshold, learning_rate, dev="cuda:0")
+torch_learn(N, D_in, H, D_out, iters, threshold, learning_rate, dev="cuda:0")
 torch_autograd_learn(N, D_in, H, D_out, iters, threshold, learning_rate, dev="cpu")
+torch_autograd_learn(N, D_in, H, D_out, iters, threshold, learning_rate, dev="cuda:0")
 torch_relu_learn(N, D_in, H, D_out, iters, threshold, learning_rate, dev="cpu")
-tf_learn(N, D_in, H, D_out, iters, threshold, learning_rate)
-torch_final_learn(N, D_in, H, D_out, iters, threshold, learning_rate, dev="cpu")
+torch_relu_learn(N, D_in, H, D_out, iters, threshold, learning_rate, dev="cuda:0")
+#tf_learn(N, D_in, H, D_out, iters, threshold, learning_rate)
+tf_learn(N, D_in, H, D_out, iters, threshold, learning_rate, dev='/cpu:0')
+tf_learn(N, D_in, H, D_out, iters, threshold, learning_rate, dev='/gpu:0')
+learning_rate = 1e-4
+torch_nn_learn(N, D_in, H, D_out, iters, threshold, learning_rate, dev="cpu")
+torch_nn_learn(N, D_in, H, D_out, iters, threshold, learning_rate, dev="cuda:0")
+torch_optim_learn(N, D_in, H, D_out, iters, threshold, learning_rate, optimizerfn=torch.optim.Adam, dev="cpu")
+torch_optim_learn(N, D_in, H, D_out, iters, threshold, learning_rate, optimizerfn=torch.optim.Adam, dev="cuda:0")
+torch_optim_learn(N, D_in, H, D_out, iters, threshold, learning_rate, optimizerfn=torch.optim.SGD, dev="cpu")
+torch_optim_learn(N, D_in, H, D_out, iters, threshold, learning_rate, optimizerfn=torch.optim.SGD, dev="cuda:0")
+torch_dynamic_learn(N, D_in, H, D_out, iters, threshold, learning_rate, dev="cpu")
+torch_dynamic_learn(N, D_in, H, D_out, iters, threshold, learning_rate, dev="cuda:0")
+
+
